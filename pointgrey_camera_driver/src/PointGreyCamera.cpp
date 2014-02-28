@@ -711,7 +711,7 @@ void PointGreyCamera::grabStereoImage(sensor_msgs::Image &image, const std::stri
     // Set the image encoding
     std::string imageEncoding = sensor_msgs::image_encodings::MONO8;
     if(cInfo.isColorCamera){
-      imageEncoding = sensor_msgs::image_encodings::BAYER_GRBG8;
+      imageEncoding = sensor_msgs::image_encodings::BAYER_BGGR8;
     } else { // Mono camera
       imageEncoding = sensor_msgs::image_encodings::MONO8;
     }
