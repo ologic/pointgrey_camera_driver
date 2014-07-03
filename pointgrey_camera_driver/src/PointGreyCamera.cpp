@@ -94,32 +94,19 @@ bool PointGreyCamera::setNewConfiguration(pointgrey_camera_driver::PointGreyConf
   }
 
   // Set frame rate
-  retVal &= PointGreyCamera::setProperty(FRAME_RATE, false, config.frame_rate);
+  retVal &= PointGreyCamera::setProperty(FRAME_RATE, config.auto_frame_rate, config.frame_rate);
 
   // Set exposure
-  retVal &= PointGreyCamera::setProperty(AUTO_EXPOSURE, config.auto_exposure, config.exposure);
+  retVal &= PointGreyCamera::setExposure(config.exposure_on, config.auto_exposure, config.exposure);
 
   // Set shutter time
-  double shutter = 1000.0 * config.shutter_speed; // Needs to be in milliseconds
-  retVal &= PointGreyCamera::setProperty(SHUTTER, config.auto_shutter, shutter);
-  config.shutter_speed = shutter / 1000.0; // Needs to be in seconds
+  retVal &= PointGreyCamera::setProperty(SHUTTER, config.auto_shutter, config.shutter_speed);
 
   // Set gain
   retVal &= PointGreyCamera::setProperty(GAIN, config.auto_gain, config.gain);
 
-  // Set pan
-  unsigned int pan = config.pan;
-  unsigned int not_used = 0;
-  retVal &= PointGreyCamera::setProperty(PAN, false, pan, not_used);
-  config.pan = pan;
-
-  // Set tilt
-  unsigned int tilt = config.tilt;
-  retVal &= PointGreyCamera::setProperty(TILT, false, tilt, not_used);
-  config.tilt = tilt;
-
   // Set brightness
-  retVal &= PointGreyCamera::setProperty(BRIGHTNESS, false, config.brightness);
+  retVal &= PointGreyCamera::setProperty(BRIGHTNESS, config.auto_brightness, config.brightness);
 
   // Set gamma
   retVal &= PointGreyCamera::setProperty(GAMMA, false, config.gamma);
@@ -481,6 +468,53 @@ bool PointGreyCamera::setProperty(const FlyCapture2::PropertyType &type, const b
   return retVal;
 }
 
+bool PointGreyCamera::setProperty(const FlyCapture2::PropertyType &type, const bool &autoSet, int &value)
+{
+  // return true if we can set values as desired.
+  bool retVal = true;
+  Property prop;
+  prop.type = type;
+  prop.autoManualMode = autoSet;
+  prop.absControl = false;
+  prop.onOff = true;
+
+  PropertyInfo pInfo;
+  pInfo.type = type;
+  Error error = cam_.GetPropertyInfo(&pInfo);
+  PointGreyCamera::handleError("PointGreyCamera::setProperty Could not get property info.", error);
+
+  if (pInfo.present)
+  {
+    if(value < pInfo.min)
+    {
+      value = pInfo.min;
+      retVal &= false;
+    }
+    else if(value > pInfo.max)
+    {
+      value = pInfo.max;
+      retVal &= false;
+    }
+    prop.valueA = value;
+    prop.valueB = 0;
+    error = cam_.SetProperty(&prop);
+    PointGreyCamera::handleError("PointGreyCamera::setProperty  Failed to set property ", error); /** @todo say which property? */
+
+    // Read back setting to confirm
+    error = cam_.GetProperty(&prop);
+    PointGreyCamera::handleError("PointGreyCamera::setProperty  Failed to confirm property ", error); /** @todo say which property? */
+    if(!prop.autoManualMode)
+    {
+      value = prop.valueA;
+    }
+  }
+  else     // Not supported
+  {
+    value = 0;
+  }
+  return retVal;
+}
+
 bool PointGreyCamera::setProperty(const FlyCapture2::PropertyType &type, const bool &autoSet, double &value)
 {
   // return true if we can set values as desired.
@@ -523,6 +557,53 @@ bool PointGreyCamera::setProperty(const FlyCapture2::PropertyType &type, const b
   else     // Not supported
   {
     value = 0.0;
+  }
+  return retVal;
+}
+
+bool PointGreyCamera::setExposure(const bool &onOff, const bool &autoSet, int &value)
+{
+  // return true if we can set values as desired.
+  bool retVal = true;
+  Property prop;
+  prop.type = AUTO_EXPOSURE;
+  prop.onOff = onOff;
+  prop.autoManualMode = autoSet;
+  prop.absControl = false;
+
+  PropertyInfo pInfo;
+  pInfo.type = AUTO_EXPOSURE;
+  Error error = cam_.GetPropertyInfo(&pInfo);
+  PointGreyCamera::handleError("PointGreyCamera::setProperty Could not get property info.", error);
+
+  if (pInfo.present)
+  {
+    if(value < pInfo.min)
+    {
+      value = pInfo.min;
+      retVal &= false;
+    }
+    else if(value > pInfo.max)
+    {
+      value = pInfo.max;
+      retVal &= false;
+    }
+    prop.valueA = value;
+    prop.valueB = 0;
+    error = cam_.SetProperty(&prop);
+    PointGreyCamera::handleError("PointGreyCamera::setProperty  Failed to set property ", error); /** @todo say which property? */
+
+    // Read back setting to confirm
+    error = cam_.GetProperty(&prop);
+    PointGreyCamera::handleError("PointGreyCamera::setProperty  Failed to confirm property ", error); /** @todo say which property? */
+    if(!prop.autoManualMode)
+    {
+      value = prop.valueA;
+    }
+  }
+  else     // Not supported
+  {
+    value = 0;
   }
   return retVal;
 }

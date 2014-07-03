@@ -7,8 +7,8 @@
   <group ns="camera">
     <node pkg="nodelet" type="nodelet" name="camera_nodelet_manager" args="manager" />
 
-    <node pkg="nodelet" type="nodelet" name="camera_nodelet"
-          args="load pointgrey_camera_driver/PointGreyCameraNodelet camera_nodelet_manager" >
+    <node launch-prefix="xterm -e gdb -tui --args" pkg="nodelet" type="nodelet" name="camera_nodelet"
+          args="standalone pointgrey_camera_driver/PointGreyCameraNodelet camera_nodelet_manager" >
       <param name="frame_id" value="camera" />
       <param name="serial" value="$(arg camera_serial)" />
       

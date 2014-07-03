@@ -224,12 +224,37 @@ private:
   * \param type FlyCapture2::PropertyType to set.  Examples: FlyCapture2::GAIN FlyCapture2::SHUTTER FlyCapture2::BRIGHTNESS
   * \param autoSet whether or not to allow the camera to automatically adjust values.  Ex: auto exposure, auto shutter.  Not supported for all types.
   * \param value Desired absolute value to be set in appropriate units.  Will be changed if this value is not supported.
+  *
+  * \return Returns true when the configuration could be applied without modification.
+  */
+  bool setProperty(const FlyCapture2::PropertyType &type, const bool &autoSet, int &value);
+
+  /*!
+  * \brief Generic wrapper for setting properties in FlyCapture2
+  *
+  * This function will set the appropriate type and if desired, will allow the camera to change its own value.  If value is outside the range of min and max,
+  * it will be set to either extreme.
+  * \param type FlyCapture2::PropertyType to set.  Examples: FlyCapture2::GAIN FlyCapture2::SHUTTER FlyCapture2::BRIGHTNESS
+  * \param autoSet whether or not to allow the camera to automatically adjust values.  Ex: auto exposure, auto shutter.  Not supported for all types.
+  * \param value Desired absolute value to be set in appropriate units.  Will be changed if this value is not supported.
   * \param min Absolute mininum value that this type can be set to.
   * \param max Absolute maximum value that this type can be set to.
   *
   * \return Returns true when the configuration could be applied without modification.
   */
   bool setProperty(const FlyCapture2::PropertyType &type, const bool &autoSet, double &value);
+
+  /*!
+  * \brief Sets the exposure property
+  *
+  * This function will set the exposure for the camera.
+  * \param onOff Enables or disables exposure control (Combined Gain, Iris & Shutter control). 
+  * \param autoSet @hether or not to allow the camera to automatically adjust values.
+  * \param value Desired exposure value.
+  *
+  * \return Returns true when the configuration could be applied without modification.
+  */
+  bool setExposure(const bool &onOff, const bool &autoSet, int &value);
 
   /*!
   * \brief Sets the white balance property
