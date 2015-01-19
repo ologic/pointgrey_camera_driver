@@ -32,6 +32,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 #include "pointgrey_camera_driver/PointGreyCamera.h"
 
 #include <iostream>
+#include <sstream>
 
 using namespace FlyCapture2;
 
@@ -69,7 +70,7 @@ bool PointGreyCamera::setNewConfiguration(pointgrey_camera_driver::PointGreyConf
     if(vMode == VIDEOMODE_FORMAT7)
     {
       PixelFormat fmt7PixFmt;
-      PointGreyCamera::getFormat7PixelFormatFromString(fmt7Mode, config.format7_color_coding, fmt7PixFmt);
+      PointGreyCamera::getFormat7PixelFormatFromString(config.format7_color_coding, fmt7PixFmt);
       // Oh no, these all need to be converted into uints, so my pass by reference trick doesn't work
       uint16_t uwidth = (uint16_t)config.format7_roi_width;
       uint16_t uheight = (uint16_t)config.format7_roi_height;
@@ -119,7 +120,34 @@ bool PointGreyCamera::setNewConfiguration(pointgrey_camera_driver::PointGreyConf
   config.white_balance_red = red;
 
   // Set trigger
-  retVal &= PointGreyCamera::setExternalTrigger(config.enable_trigger, config.trigger_mode, config.trigger_source, config.trigger_parameter, config.trigger_delay);
+  switch (config.trigger_polarity)
+  {
+    case pointgrey_camera_driver::PointGrey_Low:
+    case pointgrey_camera_driver::PointGrey_High:
+      {
+      bool temp = config.trigger_polarity;
+      retVal &= PointGreyCamera::setExternalTrigger(config.enable_trigger, config.trigger_mode, config.trigger_source, config.trigger_parameter, config.trigger_delay, temp);
+      config.strobe1_polarity = temp;
+      }
+      break;
+    default:
+      retVal &= false;
+  }
+
+  // Set strobe
+  switch (config.strobe1_polarity)
+  {
+    case pointgrey_camera_driver::PointGrey_Low:
+    case pointgrey_camera_driver::PointGrey_High:
+      {
+      bool temp = config.strobe1_polarity;
+      retVal &= PointGreyCamera::setExternalStrobe(config.enable_strobe1, pointgrey_camera_driver::PointGrey_GPIO1, config.strobe1_duration, config.strobe1_delay, temp);
+      config.strobe1_polarity = temp;
+      }
+      break;
+    default:
+      retVal &= false;
+  }
 
   return retVal;
 }
@@ -320,7 +348,7 @@ bool PointGreyCamera::getVideoModeFromString(std::string &vmode, FlyCapture2::Vi
   return retVal;
 }
 
-bool PointGreyCamera::getFormat7PixelFormatFromString(FlyCapture2::Mode &fmt7Mode, std::string &sformat, FlyCapture2::PixelFormat &fmt7PixFmt)
+bool PointGreyCamera::getFormat7PixelFormatFromString(std::string &sformat, FlyCapture2::PixelFormat &fmt7PixFmt)
 {
   // return true if we can set values as desired.
   bool retVal = true;
@@ -330,44 +358,32 @@ bool PointGreyCamera::getFormat7PixelFormatFromString(FlyCapture2::Mode &fmt7Mod
   Error error = cam_.GetCameraInfo(&cInfo);
   PointGreyCamera::handleError("PointGreyCamera::getFormat7PixelFormatFromString  Failed to get camera info.", error);
 
-  if(fmt7Mode == MODE_0)   // Only supports raw8 and raw16, since this is Bayer
+  if(cInfo.isColorCamera)
   {
-    if(cInfo.isColorCamera)
+    if(sformat.compare("raw8") == 0)
     {
-      if(sformat.compare("raw8") == 0)
-      {
-        fmt7PixFmt = PIXEL_FORMAT_RAW8;
-      }
-      else if(sformat.compare("raw16") == 0)
-      {
-        fmt7PixFmt = PIXEL_FORMAT_RAW16;
-      }
-      else
-      {
-        sformat = "raw8";
-        fmt7PixFmt = PIXEL_FORMAT_RAW8;
-        retVal &= false;
-      }
+      fmt7PixFmt = PIXEL_FORMAT_RAW8;
     }
-    else     // Is black and white
+    else if(sformat.compare("raw16") == 0)
     {
-      if(sformat.compare("mono8") == 0)
-      {
-        fmt7PixFmt = PIXEL_FORMAT_MONO8;
-      }
-      else if(sformat.compare("mono16") == 0)
-      {
-        fmt7PixFmt = PIXEL_FORMAT_MONO16;
-      }
-      else
-      {
-        sformat = "mono8";
-        fmt7PixFmt = PIXEL_FORMAT_MONO8;
-        retVal &= false;
-      }
+      fmt7PixFmt = PIXEL_FORMAT_RAW16;
+    }
+    else if(sformat.compare("mono8") == 0)
+    {
+      fmt7PixFmt = PIXEL_FORMAT_MONO8;
+    }
+    else if(sformat.compare("mono16") == 0)
+    {
+      fmt7PixFmt = PIXEL_FORMAT_MONO16;
+    }
+    else
+    {
+      sformat = "raw8";
+      fmt7PixFmt = PIXEL_FORMAT_RAW8;
+      retVal &= false;
     }
   }
-  else if(fmt7Mode == MODE_1 || fmt7Mode == MODE_2)     // Only supports mono8 and mono16, since these are made using pixel-binning
+  else     // Is black and white
   {
     if(sformat.compare("mono8") == 0)
     {
@@ -383,27 +399,7 @@ bool PointGreyCamera::getFormat7PixelFormatFromString(FlyCapture2::Mode &fmt7Mod
       fmt7PixFmt = PIXEL_FORMAT_MONO8;
       retVal &= false;
     }
-  }
-  else if(fmt7Mode == MODE_3)
-  {
-    if(cInfo.isColorCamera)
-    {
-      fmt7PixFmt = PIXEL_FORMAT_RAW16;
-      sformat = "raw16";
-    }
-    else
-    {
-      fmt7PixFmt = PIXEL_FORMAT_MONO16;
-      sformat = "mono16";
-    }
-  }
-  else     // Unrecognized mode or format, use safest
-  {
-    fmt7Mode = MODE_0;
-    sformat = "raw8";
-    fmt7PixFmt = PIXEL_FORMAT_RAW8;
-    retVal &= false;
-  }
+  }  
 
   return retVal;
 }
@@ -412,11 +408,6 @@ bool PointGreyCamera::setProperty(const FlyCapture2::PropertyType &type, const b
 {
   // return true if we can set values as desired.
   bool retVal = true;
-  Property prop;
-  prop.type = type;
-  prop.autoManualMode = autoSet;
-  prop.absControl = false;
-  prop.onOff = true;
 
   PropertyInfo pInfo;
   pInfo.type = type;
@@ -425,6 +416,12 @@ bool PointGreyCamera::setProperty(const FlyCapture2::PropertyType &type, const b
 
   if(pInfo.present)
   {
+    Property prop;
+    prop.type = type;
+    prop.autoManualMode = (autoSet && pInfo.autoSupported);
+    prop.absControl = false;
+    prop.onOff = pInfo.onOffSupported;
+
     if(valueA < pInfo.min)
     {
       valueA = pInfo.min;
@@ -519,11 +516,6 @@ bool PointGreyCamera::setProperty(const FlyCapture2::PropertyType &type, const b
 {
   // return true if we can set values as desired.
   bool retVal = true;
-  Property prop;
-  prop.type = type;
-  prop.autoManualMode = autoSet;
-  prop.absControl = true;
-  prop.onOff = true;
 
   PropertyInfo pInfo;
   pInfo.type = type;
@@ -532,6 +524,12 @@ bool PointGreyCamera::setProperty(const FlyCapture2::PropertyType &type, const b
 
   if(pInfo.present)
   {
+    Property prop;
+    prop.type = type;
+    prop.autoManualMode = (autoSet && pInfo.autoSupported);
+    prop.absControl = pInfo.absValSupported;
+    prop.onOff = pInfo.onOffSupported;
+
     if(value < pInfo.absMin)
     {
       value = pInfo.absMin;
@@ -621,16 +619,16 @@ bool PointGreyCamera::setWhiteBalance(uint16_t &blue, uint16_t &red)
   if(cInfo.isColorCamera && blue > 0 && red > 0)  ///< @todo 11/15 hack to ignore white balance changes.
   {
     // return true if we can set values as desired.
-    Property prop;
-    prop.type = WHITE_BALANCE;
-    prop.autoManualMode = false;
-    prop.absControl = false;
-    prop.onOff = true;
-
     PropertyInfo pInfo;
     pInfo.type = WHITE_BALANCE;
     error = cam_.GetPropertyInfo(&pInfo);
     PointGreyCamera::handleError("PointGreyCamera::setWhiteBalance Could not get property info.", error);
+
+    Property prop;
+    prop.type = WHITE_BALANCE;
+    prop.autoManualMode = (false || !pInfo.manualSupported);
+    prop.absControl = false;
+    prop.onOff = pInfo.onOffSupported;
 
     if(blue < pInfo.min)
     {
@@ -704,12 +702,82 @@ float PointGreyCamera::getCameraFrameRate()
   Property fProp;
   fProp.type = FRAME_RATE;
   Error error = cam_.GetProperty(&fProp);
-  PointGreyCamera::handleError("PointGreyCamera::getCameraTemperature Could not get property.", error);
+  PointGreyCamera::handleError("PointGreyCamera::getCameraFrameRate Could not get property.", error);
   std::cout << "Frame Rate is: " << fProp.absValue << std::endl;
   return fProp.absValue;
 }
 
-bool PointGreyCamera::setExternalTrigger(bool &enable, std::string &mode, std::string &source, int32_t &parameter, double &delay)
+static int sourceNumberFromGpioName(const std::string s)
+{
+  if(s.compare("gpio0") == 0)
+  {
+    return 0;
+  }
+  else if(s.compare("gpio1") == 0)
+  {
+    return 1;
+  }
+  else if(s.compare("gpio2") == 0)
+  {
+    return 2;
+  }
+  else if(s.compare("gpio3") == 0)
+  {
+    return 3;
+  }
+  else
+  {
+    // Unrecognized pin
+    return -1;
+  }
+}
+
+bool PointGreyCamera::setExternalStrobe(bool &enable, const std::string &dest, double &duration, double &delay, bool &polarityHigh)
+{
+  // return true if we can set values as desired.
+  bool retVal = true;
+
+  // Check strobe source
+  int pin;
+  pin = sourceNumberFromGpioName(dest);
+  if (pin < 0)
+  {
+    // Unrecognized source
+    return false;
+  }
+  // Check for external trigger support
+  StrobeInfo strobeInfo;
+  strobeInfo.source = pin;
+  Error error = cam_.GetStrobeInfo(&strobeInfo);
+  PointGreyCamera::handleError("PointGreyCamera::setExternalStrobe Could not check external strobe support.", error);
+  if(strobeInfo.present != true)
+  {
+    // Camera doesn't support external strobes on this pin, so set enable_strobe to false
+    enable = false;
+    return false;
+  }
+
+  StrobeControl strobeControl;
+  strobeControl.source = pin;
+  error = cam_.GetStrobe(&strobeControl);
+  PointGreyCamera::handleError("PointGreyCamera::setExternalStrobe Could not get strobe control.", error);
+  strobeControl.duration = duration;
+  strobeControl.delay = delay;
+  strobeControl.onOff = enable;
+  strobeControl.polarity = polarityHigh;
+
+  error = cam_.SetStrobe(&strobeControl);
+  PointGreyCamera::handleError("PointGreyCamera::setExternalStrobe Could not set strobe control.", error);
+  error = cam_.GetStrobe(&strobeControl);
+  PointGreyCamera::handleError("PointGreyCamera::setExternalStrobe Could not get strobe control.", error);
+  delay = strobeControl.delay;
+  enable = strobeControl.onOff;
+  polarityHigh = strobeControl.polarity;
+
+  return retVal;
+}
+
+bool PointGreyCamera::setExternalTrigger(bool &enable, std::string &mode, std::string &source, int32_t &parameter, double &delay, bool &polarityHigh)
 {
   // return true if we can set values as desired.
   bool retVal = true;
@@ -725,6 +793,8 @@ bool PointGreyCamera::setExternalTrigger(bool &enable, std::string &mode, std::s
   }
 
   TriggerMode triggerMode;
+  error = cam_.GetTriggerMode(&triggerMode);
+  PointGreyCamera::handleError("PointGreyCamera::setExternalTrigger Could not get trigger mode.", error);
   triggerMode.onOff = enable;
 
   // Set trigger mode
@@ -758,32 +828,29 @@ bool PointGreyCamera::setExternalTrigger(bool &enable, std::string &mode, std::s
 
   // Set trigger source
   std::string tsource = source;
-  if(tsource.compare("gpio0") == 0)
-  {
-    triggerMode.source = 0;
-  }
-  else if(tsource.compare("gpio1") == 0)
-  {
-    triggerMode.source = 1;
-  }
-  else if(tsource.compare("gpio2") == 0)
-  {
-    triggerMode.source = 2;
-  }
-  else if(tsource.compare("gpio3") == 0)
-  {
-    triggerMode.source = 3;
-  }
-  else
+  int pin = sourceNumberFromGpioName(tsource);
+  if (pin < 0)
   {
     // Unrecognized source
     triggerMode.source = 0;
     source = "gpio0";
     retVal &= false;
   }
+  else
+  {
+    triggerMode.source = pin;
+  }
+
+  triggerMode.polarity = polarityHigh;
 
   error = cam_.SetTriggerMode(&triggerMode);
   PointGreyCamera::handleError("PointGreyCamera::setExternalTrigger Could not set trigger mode.", error);
+  error = cam_.GetTriggerMode(&triggerMode);
+  PointGreyCamera::handleError("PointGreyCamera::setExternalTrigger Could not get trigger mode.", error);
+  enable = triggerMode.onOff;
+  std::stringstream buff;
+  buff << "mode" << triggerMode.mode;
+  mode = buff.str();
 
   /** @todo, check delay min and max values */
 
@@ -795,8 +862,62 @@ bool PointGreyCamera::setExternalTrigger(bool &enable, std::string &mode, std::s
   triggerDelay.onOff = true;
   error = cam_.SetTriggerDelay(&triggerDelay);
   PointGreyCamera::handleError("PointGreyCamera::setExternalTrigger Could not set trigger delay.", error);
+  error = cam_.GetTriggerDelay(&triggerDelay);
+  PointGreyCamera::handleError("PointGreyCamera::setExternalTrigger Could not get trigger delay.", error);
+  delay = triggerDelay.absValue;
 
   return retVal;
+}
+
+void PointGreyCamera::setGigEParameters(bool auto_packet_size, unsigned int packet_size, unsigned int packet_delay)
+{
+  auto_packet_size_ = auto_packet_size;
+  packet_size_ = packet_size;
+  packet_delay_ = packet_delay;
+}
+
+void PointGreyCamera::setupGigEPacketSize(PGRGuid & guid)
+{
+  GigECamera cam;
+  Error error;
+  error = cam.Connect(&guid);
+  PointGreyCamera::handleError("PointGreyCamera::connect could not connect as GigE camera", error);
+  unsigned int packet_size;
+  error = cam.DiscoverGigEPacketSize(&packet_size);
+  PointGreyCamera::handleError("PointGreyCamera::connect could not discover GigE packet_size", error);
+  GigEProperty prop;
+  prop.propType = PACKET_SIZE;
+  error = cam.GetGigEProperty(&prop);
+  PointGreyCamera::handleError("PointGreyCamera::connect could not get GigE packet_size", error);
+  prop.value = packet_size;
+  error = cam.SetGigEProperty(&prop);
+  PointGreyCamera::handleError("PointGreyCamera::connect could not set GigE packet_size", error);
+}
+
+void PointGreyCamera::setupGigEPacketSize(PGRGuid & guid, unsigned int packet_size)
+{
+  GigECamera cam;
+  Error error;
+  error = cam.Connect(&guid);
+  PointGreyCamera::handleError("PointGreyCamera::connect could not connect as GigE camera", error);
+  GigEProperty prop;
+  prop.propType = PACKET_SIZE;
+  prop.value = packet_size;
+  error = cam.SetGigEProperty(&prop);
+  PointGreyCamera::handleError("PointGreyCamera::connect could not set GigE packet_size", error);
+}
+
+void PointGreyCamera::setupGigEPacketDelay(PGRGuid & guid, unsigned int packet_delay)
+{
+  GigECamera cam;
+  Error error;
+  error = cam.Connect(&guid);
+  PointGreyCamera::handleError("PointGreyCamera::connect could not connect as GigE camera", error);
+  GigEProperty prop;
+  prop.propType = PACKET_DELAY;
+  prop.value = packet_delay;
+  error = cam.SetGigEProperty(&prop);
+  PointGreyCamera::handleError("PointGreyCamera::connect could not set GigE packet_delay", error);
 }
 
 void PointGreyCamera::connect()
@@ -818,6 +939,22 @@ void PointGreyCamera::connect()
       error  = busMgr_.GetCameraFromIndex(0, &guid);
       PointGreyCamera::handleError("PointGreyCamera::connect Failed to get first connected camera", error);
     }
+
+    FlyCapture2::InterfaceType ifType;
+    error = busMgr_.GetInterfaceTypeFromGuid(&guid, &ifType);
+    PointGreyCamera::handleError("PointGreyCamera::connect Failed to get interface style of camera", error);
+    if (ifType == FlyCapture2::INTERFACE_GIGE)
+    {
+		// Set packet size:
+        if (auto_packet_size_)
+            setupGigEPacketSize(guid);   
+        else
+            setupGigEPacketSize(guid, packet_size_);             
+            
+        // Set packet delay:    
+        setupGigEPacketDelay(guid, packet_delay_);    
+    }
+
     error = cam_.Connect(&guid);
     PointGreyCamera::handleError("PointGreyCamera::connect Failed to connect to camera", error);
 
@@ -969,11 +1106,31 @@ void PointGreyCamera::grabStereoImage(sensor_msgs::Image &image, const std::stri
     error = cam_.GetCameraInfo(&cInfo);
     PointGreyCamera::handleError("PointGreyCamera::grabStereoImage  Failed to get camera info.", error);
 
+    // GetBitsPerPixel returns 16, but that seems to mean "2 8 bit pixels, 
+    // one for each image". Therefore, we don't use it
+    //uint8_t bitsPerPixel = rawImage.GetBitsPerPixel();
+
     // Set the image encoding
     std::string imageEncoding = sensor_msgs::image_encodings::MONO8;
-    if(cInfo.isColorCamera)
+    BayerTileFormat bayer_format = rawImage.GetBayerTileFormat();
+
+    if(cInfo.isColorCamera && bayer_format != NONE)
     {
-      imageEncoding = sensor_msgs::image_encodings::BAYER_GRBG8;
+        switch(bayer_format)
+        {
+        case RGGB:
+          imageEncoding = sensor_msgs::image_encodings::BAYER_RGGB8;
+          break;
+        case GRBG:
+          imageEncoding = sensor_msgs::image_encodings::BAYER_GRBG8;
+          break;
+        case GBRG:
+          imageEncoding = sensor_msgs::image_encodings::BAYER_GBRG8;
+          break;
+        case BGGR:
+          imageEncoding = sensor_msgs::image_encodings::BAYER_BGGR8;
+          break;
+        }
     }
     else     // Mono camera
     {
